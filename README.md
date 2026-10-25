@@ -8,6 +8,21 @@ so that the next day runs on solar as much as possible.
 _UA: Самостійно розгорнутий сервіс моніторингу гібридного інвертора Deye та розумного нічного заряду АКБ
 за прогнозом сонця. Інтерфейс дашборду — українською та англійською._
 
+## Screenshots
+
+![Overview — live flows, tonight's charge plan, weather](docs/screenshots/overview-light.png)
+
+![Battery forecast for 24 h, what-if slider, history and daily energy flows](docs/screenshots/forecast-light.png)
+
+<details>
+<summary>More: dark theme, "what powered the house", daily table</summary>
+
+![Overview, dark theme](docs/screenshots/overview-dark.png)
+![History, dark theme](docs/screenshots/history-dark.png)
+![What powered the house, daily table, outage journal](docs/screenshots/history-light.png)
+
+</details>
+
 ## Features
 
 - **Telemetry collector** — Solarman V5 protocol (`pysolarmanv5`), one connection owner, polling every 10 s,
