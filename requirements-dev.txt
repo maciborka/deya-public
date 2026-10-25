@@ -1,0 +1,3 @@
+httpx
+pytest
+Django==5.2.18

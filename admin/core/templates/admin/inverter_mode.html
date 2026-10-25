@@ -1,0 +1,96 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+  <div class="p-4">
+    {% include "core/overview_body.html" %}
+
+    <h3 class="font-semibold mt-8 mb-2">Изменить слоты TOU</h3>
+    <div class="text-sm text-font-subtle-light dark:text-font-subtle-dark mb-4">Админка к логгеру не подключается: запрос ставится в очередь, запись выполняет сервис при ближайшем опросе.</div>
+    {% if form %}
+    <form method="post">
+      {% csrf_token %}
+      {{ form.snapshot_id }}
+      {% if floor_warning %}
+      <div class="mb-4 p-3 border rounded-default border-orange-300 bg-orange-50 text-orange-800 dark:border-orange-700 dark:bg-orange-900/30 dark:text-orange-200">
+        <div class="mb-2">В инверторе порог {{ floor_warning.inverter }} %, в настройках {{ floor_warning.settings }} % (порог разряда в слотах без заряда от сети).</div>
+        {% if can_write %}
+        <button type="submit" name="action" value="fill_reserve" class="border rounded-default px-3 py-2 border-orange-300 dark:border-orange-700">Подставить порог из настроек</button>
+        <span class="text-sm ml-2">Только заполнит форму и покажет изменения — запись, как обычно, после подтверждения.</span>
+        {% endif %}
+      </div>
+      {% endif %}
+      {% if errors %}
+      <ul class="mb-4 text-red-600 dark:text-red-400">
+        {% for e in errors %}<li>{{ e }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+      {% if form.non_field_errors %}<div class="mb-4 text-red-600 dark:text-red-400">{{ form.non_field_errors }}</div>{% endif %}
+      <table class="w-full text-sm border border-base-200 dark:border-base-800 mb-4">
+        <thead><tr class="text-left">
+          <th class="p-2">Слот</th><th class="p-2">Начало (ЧЧ:ММ)</th><th class="p-2">Мощность, Вт</th><th class="p-2">SOC, %</th><th class="p-2">Источник</th>
+        </tr></thead>
+        <tbody>
+        {% for row in form.rows %}
+          <tr class="border-t border-base-200 dark:border-base-800">
+            <td class="p-2">{{ row.n }}</td>
+            {% for field in row.fields %}
+            <td class="p-2">{{ field }}{% if field.errors %}<div class="text-red-600 dark:text-red-400 text-xs mt-1">{{ field.errors|join:" " }}</div>{% endif %}</td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+
+      {% if preview %}
+      <h3 class="font-semibold mb-2">Изменения</h3>
+      <table class="w-full text-sm border border-base-200 dark:border-base-800 mb-4">
+        <thead><tr class="text-left">
+          <th class="p-2">Слот</th><th class="p-2">Поле</th><th class="p-2">Было → станет</th><th class="p-2">Регистр</th>
+        </tr></thead>
+        <tbody>
+        {% for c in preview %}
+          <tr class="border-t border-base-200 dark:border-base-800">
+            <td class="p-2">{{ c.slot }}</td><td class="p-2">{{ c.field }}</td><td class="p-2">{{ c.old }} → <b>{{ c.new }}</b></td><td class="p-2">{{ c.reg }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% if not errors %}
+      <label class="flex items-center gap-2 mb-4">{{ form.confirm }} {{ form.confirm.label }}</label>
+      {% endif %}
+      {% endif %}
+
+      {% if can_write %}
+      <div class="flex gap-2">
+        <button type="submit" name="action" value="check" class="border rounded-default px-3 py-2 border-base-200 dark:border-base-700">Проверить</button>
+        {% if preview and not errors %}
+        <button type="submit" name="action" value="write" class="rounded-default px-3 py-2 bg-primary-600 text-white">Записать</button>
+        {% endif %}
+      </div>
+      {% else %}
+      <p class="text-sm">Нет права на запись в инвертор (core.add_inverterwriterequest).</p>
+      {% endif %}
+    </form>
+    {% else %}
+    <p>Нет снимков настроек — дождитесь опроса.</p>
+    {% endif %}
+
+    <h3 class="font-semibold mt-8 mb-2">Последние запросы на запись</h3>
+    {% if requests %}
+    <table class="w-full text-sm border border-base-200 dark:border-base-800">
+      <thead><tr class="text-left">
+        <th class="p-2">№</th><th class="p-2">Создан</th><th class="p-2">Автор</th><th class="p-2">Статус</th><th class="p-2">Изменения</th><th class="p-2">Ошибка</th>
+      </tr></thead>
+      <tbody>
+      {% for r in requests %}
+        <tr class="border-t border-base-200 dark:border-base-800">
+          <td class="p-2">{{ r.pk }}</td><td class="p-2">{{ r.created_at|date:"Y-m-d H:i:s" }}</td><td class="p-2">{{ r.created_by }}</td><td class="p-2">{{ r.get_status_display }}</td><td class="p-2">{{ r.changes_summary }}</td><td class="p-2">{{ r.error|default:"" }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p>Запросов ещё не было.</p>
+    {% endif %}
+  </div>
+{% endblock %}

@@ -1,0 +1,8 @@
+data/
+__pycache__/
+*.pyc
+.venv/
+.env
+.claude/settings.local.json
+admin/staticfiles/
+config/

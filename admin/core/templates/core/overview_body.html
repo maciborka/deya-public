@@ -1,0 +1,60 @@
+{% load i18n %}
+<div class="text-sm text-font-subtle-light dark:text-font-subtle-dark mb-4">Только чтение — в инвертор ничего не пишется.</div>
+{% with mode=overview.mode s=overview.sample st=overview.strategy %}
+<div class="grid gap-4 mb-6 md:grid-cols-2">
+  <div class="border rounded-default p-4 border-base-200 dark:border-base-800">
+    <h3 class="font-semibold mb-2">Режим инвертора</h3>
+    {% if mode %}
+    <ul class="space-y-1">
+      <li>Energy pattern: <b>{{ mode.energy_pattern }}</b></li>
+      <li>Work mode: <b>{{ mode.work_mode }}</b></li>
+      <li>Заряд от сети: <b>{% if mode.grid_charge.enabled %}вкл{% else %}выкл{% endif %}</b>, ток {{ mode.grid_charge.current_a }} А</li>
+      <li>Макс. ток заряда / разряда: {{ mode.max_charge_a }} / {{ mode.max_discharge_a }} А</li>
+      <li>SOC shutdown / restart / low: {{ mode.soc_shutdown_pct }} / {{ mode.soc_restart_pct }} / {{ mode.soc_low_pct }} %</li>
+      <li>Экспорт излишков: {% if mode.export.enabled %}вкл{% else %}выкл{% endif %}, макс. продажа {{ mode.export.max_power_w }} Вт</li>
+      <li>TOU: <b>{% if mode.tou.enabled %}вкл{% else %}выкл{% endif %}</b>, {{ mode.tou.days_label }}</li>
+      {% if overview.current_slot %}<li>Текущий слот: № {{ overview.current_slot.n }} ({{ overview.current_slot.start }}–{{ overview.current_slot.end }}, SOC {{ overview.current_slot.soc_pct }} %, {{ overview.current_slot.source_label }})</li>{% endif %}
+    </ul>
+    <div class="mt-2 text-xs">Снимок настроек: {{ overview.snapshot_time }} (Europe/Kyiv)</div>
+    {% else %}<p>Нет снимков настроек.</p>{% endif %}
+  </div>
+  <div class="border rounded-default p-4 border-base-200 dark:border-base-800">
+    <h3 class="font-semibold mb-2">Сейчас</h3>
+    {% if s %}
+    <ul class="space-y-1">
+      <li>Состояние: <b>{{ overview.state_label|default:"-" }}</b></li>
+      <li>SOC: <b>{{ s.soc_pct|default_if_none:"-" }}</b> %</li>
+      <li>PV: {{ s.pv1_power_w|default_if_none:"-" }} + {{ s.pv2_power_w|default_if_none:"-" }} Вт</li>
+      <li>Сеть: {{ s.grid_power_w|default_if_none:"-" }} Вт</li>
+      <li>Нагрузка: {{ s.load_power_w|default_if_none:"-" }} Вт</li>
+      <li>АКБ: {{ s.batt_power_w|default_if_none:"-" }} Вт</li>
+    </ul>
+    <div class="mt-2 text-xs">Замер: {{ overview.sample_time }} (Europe/Kyiv)</div>
+    {% else %}<p>Нет замеров.</p>{% endif %}
+    <h3 class="font-semibold mt-4 mb-2">Стратегия</h3>
+    {% if st %}
+    <ul class="space-y-1">
+      <li>Режим управления: <b>{{ st.get_control_mode_display }}</b></li>
+      <li>Запись в инвертор: <b>{% if st.writes_enabled %}разрешена{% else %}запрещена{% endif %}</b></li>
+      <li>Аварийный режим: <b>{{ st.get_emergency_mode_display }}</b>; пол разряда: {{ st.effective_floor_pct }} %, потолок заряда: {{ st.max_grid_charge_soc_pct }} %</li>
+    </ul>
+    {% endif %}
+    <h3 class="font-semibold mt-4 mb-2">Тариф</h3>
+    {% if overview.tariff %}<p>{{ overview.tariff.zone }}, {{ overview.tariff.price|floatformat:2 }} {{ overview.tariff.currency }}/кВт·ч ({{ overview.tariff.plan }})</p>{% else %}<p>Нет активной зоны.</p>{% endif %}
+  </div>
+</div>
+{% if mode %}
+<table class="w-full text-sm border border-base-200 dark:border-base-800">
+  <thead><tr class="text-left">
+    <th class="p-2">Слот</th><th class="p-2">С–до</th><th class="p-2">Мощность, Вт</th><th class="p-2">SOC, %</th><th class="p-2">Источник</th>
+  </tr></thead>
+  <tbody>
+  {% for slot in mode.tou.slots %}
+    <tr class="border-t border-base-200 dark:border-base-800">
+      <td class="p-2">{{ slot.n }}</td><td class="p-2">{{ slot.start }}–{{ slot.end }}</td><td class="p-2">{{ slot.power_w }}</td><td class="p-2">{{ slot.soc_pct }}</td><td class="p-2">{{ slot.source_label }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endwith %}

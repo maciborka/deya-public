@@ -1,0 +1,102 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-deya}
+      POSTGRES_USER: ${POSTGRES_USER:-deya}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build: ./admin
+    image: deya-admin:local
+    command: ["sh", "-c", "python manage.py migrate --noinput && python manage.py collectstatic --noinput"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-deya}
+      POSTGRES_USER: ${POSTGRES_USER:-deya}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?задайте DJANGO_SECRET_KEY в .env}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
+    volumes:
+      - staticfiles:/srv/staticfiles
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  admin:
+    image: deya-admin:local
+    ports:
+      - "127.0.0.1:8001:8000"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-deya}
+      POSTGRES_USER: ${POSTGRES_USER:-deya}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?задайте DJANGO_SECRET_KEY в .env}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-}
+    volumes:
+      - staticfiles:/srv/staticfiles:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/admin/login/', timeout=5).status == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  deya:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-deya}
+      POSTGRES_USER: ${POSTGRES_USER:-deya}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
+      DEYA_LOGGER_IP: ${DEYA_LOGGER_IP:?задайте DEYA_LOGGER_IP в .env}
+      DEYA_LOGGER_SERIAL: ${DEYA_LOGGER_SERIAL:?задайте DEYA_LOGGER_SERIAL в .env}
+      DEYA_LOGGER_PORT: ${DEYA_LOGGER_PORT:-8899}
+      DEYA_POLL_SEC: ${DEYA_POLL_SEC:-10}
+      DEYA_FULL_POLL_SEC: ${DEYA_FULL_POLL_SEC:-300}
+      DEYA_FORECAST_HOURS: ${DEYA_FORECAST_HOURS:-5,11,17,21}
+      DEYA_TZ: ${DEYA_TZ:-Europe/Kyiv}
+      SOLCAST_API_KEY: ${SOLCAST_API_KEY:-}
+      DEYA_WEB_USER: ${DEYA_WEB_USER:-deya}
+      DEYA_WEB_PASSWORD: ${DEYA_WEB_PASSWORD:?задайте DEYA_WEB_PASSWORD в .env}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health', timeout=5).status == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Внешний доступ: Cloudflare Tunnel (remotely-managed). Маршруты hostname → http://deya:8000 и http://admin:8000
+  # и защита Cloudflare Access настраиваются в Zero Trust. Включается COMPOSE_PROFILES=tunnel в .env.
+  cloudflared:
+    image: cloudflare/cloudflared:2025.1.0
+    profiles: ["tunnel"]
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - deya
+      - admin
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  staticfiles:

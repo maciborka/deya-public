@@ -1,0 +1,18 @@
+{% extends 'admin/base.html' %}
+
+{% load i18n %}
+
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block branding %}
+    {% include "unfold/helpers/site_branding.html" %}
+{% endblock %}
+
+{% block content %}
+    {% if overview %}
+    <div class="mb-6">
+        {% include "core/overview_body.html" %}
+    </div>
+    {% endif %}
+    {% include "unfold/helpers/dashboard_default.html" %}
+{% endblock %}
