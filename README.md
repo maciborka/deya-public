@@ -95,6 +95,10 @@ database (admin), not in the repository.
 Register map based on [ha-solarman](https://github.com/davidrapan/ha-solarman) (`deye_p3.yaml`) and Deye Modbus RTU
 documentation. Bundled third-party assets are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) (English, Українська).
+
 ## License
 
 [MIT](LICENSE)
