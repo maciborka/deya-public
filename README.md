@@ -1,12 +1,11 @@
 # Deya — monitoring and smart charging for a Deye hybrid inverter
 
+**English** · [Українська](README.uk.md)
+
 Self-hosted web service for a **Deye 3-phase hybrid inverter** (developed on a 12 kW LV model, SUN-*-SG0xLP3)
 connected through a **Solarman WiFi logger (LSW3)**. It collects telemetry over the local network, forecasts
 solar production and decides every evening how far to charge the battery from the grid at the cheap night tariff,
 so that the next day runs on solar as much as possible.
-
-_UA: Самостійно розгорнутий сервіс моніторингу гібридного інвертора Deye та розумного нічного заряду АКБ
-за прогнозом сонця. Інтерфейс дашборду — українською та англійською._
 
 ## Screenshots
 
@@ -28,11 +27,12 @@ _UA: Самостійно розгорнутий сервіс моніторин
 - **Telemetry collector** — Solarman V5 protocol (`pysolarmanv5`), one connection owner, polling every 10 s,
   full settings snapshot every 5 min. Stored in PostgreSQL.
 - **Dashboard** (FastAPI + vanilla JS, no CDN): live power-flow diagram, battery forecast for 24 h, history,
-  Sankey of daily energy flows, "what powered the house" chart, grid outage journal, weather (Open-Meteo).
-  Light/dark theme, UA/EN.
+  Sankey of daily energy flows, "what powered the house" chart, grid outage journal, weather (Open-Meteo),
+  hourly "Sun: forecast vs actual" chart. Light/dark theme, UA/EN.
 - **Solar forecast** from several providers (Open-Meteo, Forecast.Solar, Solcast) per panel group.
 - **Night charge planner** — simulates PV p10/p50/p90 × load scenarios and picks the lowest night SOC target that
-  keeps the probability of buying grid power during the day below a configurable risk level. DST-safe.
+  keeps the probability of buying grid power during the day below a configurable risk level. Cloudy-day rule:
+  if tomorrow's expected PV is below a threshold, the battery is charged to the ceiling. DST-safe.
 - **Inverter control (opt-in)** — writes TOU (time-of-use) slots, registers 148–159 / 166–177, through a queue with
   whitelist, stale-value check, rate limits and read-back verification. Modes: off / advise / auto.
 - **Django admin** — tariffs (time zones and prices), panel groups, forecast providers and API keys,
