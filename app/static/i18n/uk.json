@@ -298,5 +298,22 @@
   "history.outages.kind.partial": "часткове ({phases})",
   "history.outages.ongoing": "триває",
   "history.outages.batt": "АКБ віддала {kwh}",
-  "history.outages.soc": "SOC {a} → {b}"
+  "history.outages.soc": "SOC {a} → {b}",
+  "pvfc.title": "Сонце: прогноз і факт",
+  "pvfc.day.aria": "День для графіка сонця",
+  "pvfc.day.yesterday": "Вчора",
+  "pvfc.day.today": "Сьогодні",
+  "pvfc.day.tomorrow": "Завтра",
+  "pvfc.sum.full": "Сонце дало {actual} · очікували {fc}{pct} · могло бути від {lo} до {hi}",
+  "pvfc.sum.forecast": "Очікуємо {fc} сонця · у похмурий день може бути лише {lo}, у ясний — до {hi}",
+  "pvfc.sum.fact": "Сонце дало {actual}",
+  "pvfc.sum.pct": " (вийшло {pct} від очікуваного)",
+  "pvfc.sum.none": "Даних немає",
+  "pvfc.asof": "Прогноз станом на {time}",
+  "pvfc.warn.noForecast": "Немає прогнозу PV на цей день від увімкнених провайдерів",
+  "pvfc.empty": "Дані про сонце недоступні",
+  "pvfc.series.actual": "Сонце дало",
+  "pvfc.series.p50": "Очікували",
+  "pvfc.series.band": "Могло бути (від гіршого до кращого)",
+  "pvfc.aria": "Вироблення сонця за годинами, {day}: {summary}"
 }

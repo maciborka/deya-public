@@ -131,7 +131,8 @@ class StrategySettingsAdmin(ModelAdmin):
         (None, {"fields": ("control_mode", "writes_enabled", "decision_time")}),
         (
             "Пороги АКБ",
-            {"fields": ("normal_floor_pct", "emergency_mode", "emergency_floor_pct", "max_grid_charge_soc_pct")},
+            {"fields": ("normal_floor_pct", "emergency_mode", "emergency_floor_pct", "max_grid_charge_soc_pct",
+                        "cloudy_full_charge_kwh")},
         ),
         (
             "Ночная цель",

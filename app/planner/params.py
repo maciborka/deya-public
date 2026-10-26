@@ -18,6 +18,8 @@ class PlannerParams:
     floor_profile — целевой профиль пола [(начало_мин, конец_мин, SOC %), …] (окна внутри суток, конец не включая):
     система сама выставляет в инвертор дневные пороги по профилю; вне окон действует reserve_soc_pct.
     Для «всегда»/«выкл» — одно окно 00:00–24:00; окна отключений (schedule) лягут в тот же список.
+    cloudy_full_charge_kwh — порог пасмурного дня: прогноз PV p50 на завтра (07–23) ниже него → ночная цель = потолок;
+    None/0 — правило выключено.
     floor_slots — устарело (пороги TOU из снимка), на пол не влияет; поле оставлено для сохранённых решений.
 
     eta_charge/eta_discharge по умолчанию = sqrt(roundtrip_eff); night_charge_limit_w по умолчанию
@@ -50,6 +52,7 @@ class PlannerParams:
     slot_sec: int = 900
     floor_slots: list | None = None
     floor_profile: list | None = None
+    cloudy_full_charge_kwh: float | None = None
 
     def __post_init__(self) -> None:
         if self.risk not in RISKS:

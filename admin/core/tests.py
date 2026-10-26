@@ -593,3 +593,17 @@ class NightTargetTests(TestCase):
         self.assertContains(resp, 'name="night_target_mode"', count=3)
         self.assertContains(resp, "55 % (ночь 23.10.2026), вероятность дневной докупки 4 %")
         self.assertContains(resp, "истекло")
+
+
+class CloudyThresholdTests(TestCase):
+    def test_default_and_validation(self):
+        s = StrategySettings.load()
+        self.assertEqual(s.cloudy_full_charge_kwh, 12)
+        s.full_clean()
+        for ok in (None, 0, 5.5):
+            s.cloudy_full_charge_kwh = ok
+            s.full_clean()
+        s.cloudy_full_charge_kwh = -1
+        with self.assertRaises(ValidationError) as cm:
+            s.full_clean()
+        self.assertIn("cloudy_full_charge_kwh", cm.exception.message_dict)

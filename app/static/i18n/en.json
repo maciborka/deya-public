@@ -298,5 +298,22 @@
   "history.outages.kind.partial": "partial ({phases})",
   "history.outages.ongoing": "ongoing",
   "history.outages.batt": "Battery supplied {kwh}",
-  "history.outages.soc": "SOC {a} → {b}"
+  "history.outages.soc": "SOC {a} → {b}",
+  "pvfc.title": "Sun: forecast vs actual",
+  "pvfc.day.aria": "Day for the sun chart",
+  "pvfc.day.yesterday": "Yesterday",
+  "pvfc.day.today": "Today",
+  "pvfc.day.tomorrow": "Tomorrow",
+  "pvfc.sum.full": "Sun gave {actual} · expected {fc}{pct} · could have been {lo} to {hi}",
+  "pvfc.sum.forecast": "Expecting {fc} of sun · a cloudy day may give only {lo}, a clear one up to {hi}",
+  "pvfc.sum.fact": "Sun gave {actual}",
+  "pvfc.sum.pct": " ({pct} of expected)",
+  "pvfc.sum.none": "No data",
+  "pvfc.asof": "Forecast as of {time}",
+  "pvfc.warn.noForecast": "No PV forecast for this day from enabled providers",
+  "pvfc.empty": "Sun data unavailable",
+  "pvfc.series.actual": "Sun gave",
+  "pvfc.series.p50": "Expected",
+  "pvfc.series.band": "Could be (worst to best)",
+  "pvfc.aria": "Hourly solar production, {day}: {summary}"
 }

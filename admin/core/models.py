@@ -329,6 +329,18 @@ class StrategySettings(models.Model):
         verbose_name="потолок заряда, %",
         help_text="Потолок ночного заряда от сети.",
     )
+    cloudy_full_charge_kwh = models.DecimalField(
+        max_digits=5,
+        decimal_places=1,
+        null=True,
+        blank=True,
+        default=12,
+        validators=[MinValueValidator(0)],
+        verbose_name="порог пасмурного дня, кВт·ч",
+        help_text="Если прогноз солнца на завтра (p50, 07–23) ниже порога — ночью заряжаем от сети до потолка заряда. "
+        "Пусто или 0 — выключено. Подобран по наблюдениям 22 и 26.10 (прогноз 5.5–5.8, факт 31–64 % от прогноза); "
+        "корректировать по полю pv_p50_day_kwh в решениях.",
+    )
     battery_capacity_kwh = models.DecimalField(
         max_digits=6,
         decimal_places=2,
@@ -454,6 +466,8 @@ class StrategySettings(models.Model):
             raise ValidationError("Время решения должно быть в диапазоне от 07:00 до 23:00 (не включая 23:00).")
         if self.emergency_mode == self.EMERGENCY_SCHEDULE:
             raise ValidationError({"emergency_mode": "График отключений ещё не реализован."})
+        if self.cloudy_full_charge_kwh is not None and self.cloudy_full_charge_kwh < 0:
+            raise ValidationError({"cloudy_full_charge_kwh": "Порог не может быть отрицательным."})
         normal, emergency, ceiling = self.normal_floor_pct, self.emergency_floor_pct, self.max_grid_charge_soc_pct
         if normal is not None and ceiling is not None and normal > ceiling:
             raise ValidationError("Пол обычного режима не может быть больше потолка заряда.")

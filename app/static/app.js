@@ -5,6 +5,7 @@ import { renderHeader, connState } from "./js/header.js";
 import { renderNow } from "./js/now.js";
 import { renderTonight } from "./js/tonight.js";
 import { initForecast, renderForecast, getWhatIf, noForecast } from "./js/forecast.js";
+import { initPvfc, renderPvfc, pvfcUrl } from "./js/pvfc.js";
 import { initHistory, renderHistory, histUrl, histTag, srcUrl, srcTag } from "./js/history.js";
 import { initWeather, renderWeather } from "./js/weather.js";
 import { initTech, renderTech, techOpened } from "./js/tech.js";
@@ -15,7 +16,7 @@ const SEC = 1000, MIN = 60 * SEC;
 // Общее состояние: последние успешные данные не стираются при ошибках.
 const store = {
   latest: null, plan: null, preview: null, forecast: null, tariff: null, strategy: null,
-  soc12: null, whatif: null, hist: null, daily: null, flows: null, weather: null, mode: null, fstatus: null, dayimport: null, outages: null, loadsrc: null,
+  soc12: null, whatif: null, hist: null, daily: null, flows: null, weather: null, mode: null, fstatus: null, dayimport: null, outages: null, loadsrc: null, pvfc: null,
   loaded: {}, errors: {}, lastOk: {},
 };
 
@@ -29,6 +30,7 @@ function renderAll() {
   safe(renderWeather);
   safe(renderTonight);
   safe(renderForecast);
+  safe(renderPvfc);
   safe(renderHistory);
   safe(renderTech);
 }
@@ -128,6 +130,7 @@ async function main() {
     },
   });
   initWeather();
+  initPvfc({ onDay: () => { store.pvfc = null; store.errors.pvfc = null; renderAll(); run("pvfc"); } });
   initHistory({ onRange: () => { run("hist"); run("loadsrc"); } });
   initTech({ onOpen: () => { renderAll(); run("mode"); run("fstatus"); } });
   renderAll();
@@ -143,6 +146,8 @@ async function main() {
   // #forecast: факт SOC за 12 ч; what-if — только GET, по запросу ползунка (debounce в forecast.js)
   task("soc12", "/api/samples?hours=12&step=300&fields=soc_pct", 5 * MIN);
   task("whatif", () => "/api/plan/forecast?hours=24&target=" + getWhatIf(), 5 * MIN, { enabled: () => getWhatIf() !== null });
+  // #pvfc: прогноз и факт PV по часам выбранного дня
+  task("pvfc", pvfcUrl, 5 * MIN);
   // #history
   task("hist", histUrl, 5 * MIN, { map: histTag });
   task("loadsrc", srcUrl, 5 * MIN, { map: srcTag });

@@ -406,3 +406,14 @@ def test_floor_sync_waits_for_guard(adb):
     sql(adb, "UPDATE inverter_write_requests SET status = 'done', finished_at = now()")
     tick(adb, T + 60)
     assert len(floor_requests(adb)) == 1
+
+
+def test_snapshot_reflects_same_second_readback():
+    # регрессия 24–25.10: снимок с записанными значениями снят в ту же секунду, что finished_at (19:45:20 vs
+    # 19:45:20.56), и больше не обновлялся (регистры не менялись) — автозапись ждала бесконечно
+    from datetime import datetime, timezone
+    from app.planner_service import _snapshot_reflects
+    last = {"finished_at": datetime.fromtimestamp(T + 0.56, timezone.utc), "changes": {"166": 55, "171": 55}}
+    assert _snapshot_reflects({"ts": T, "regs": dict(REGS, **{"166": 55, "171": 55})}, last)
+    assert not _snapshot_reflects({"ts": T, "regs": dict(REGS, **{"166": 55})}, last)  # 171 ещё старое — ждём
+    assert _snapshot_reflects({"ts": T + 1, "regs": REGS}, last)  # снят позже завершения

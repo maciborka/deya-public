@@ -277,7 +277,7 @@ class Database:
             "battery_capacity_kwh, battery_usable_pct, "
             "round_trip_efficiency_pct, control_mode, writes_enabled, decision_time, updated_at, "
             "export_price_per_kwh::float8 AS export_price_per_kwh, wear_cost_per_kwh::float8 AS wear_cost_per_kwh, "
-            "risk, default_plan_soc_pct, night_target_mode, night_target_manual_pct, night_target_manual_night "
+            "cloudy_full_charge_kwh::float8 AS cloudy_full_charge_kwh, risk, default_plan_soc_pct, night_target_mode, night_target_manual_pct, night_target_manual_night "
             "FROM strategy_settings ORDER BY id LIMIT 1"
         )
 

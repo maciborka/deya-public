@@ -204,7 +204,7 @@ def test_waits_for_fresh_snapshot_after_done_write(auto_db):
     url = auto_db._dsn
     assert compute_and_save(auto_db, FIXED_NOW)
     sql(url, "INSERT INTO inverter_write_requests(created_at, created_by, source, changes, expected_old, status, finished_at) "
-             "VALUES (now(), 'planner:old', 'planner', '{}', '{}', 'done', to_timestamp(%s))", (AT_01 - 120,))
+             "VALUES (now(), 'planner:old', 'planner', '{\"166\": 55, \"171\": 55}', '{}', 'done', to_timestamp(%s))", (AT_01 - 120,))
     sql(url, "UPDATE charge_decisions SET status = 'applied'")
     set_manual(url, "once", 70)
     tick(auto_db, AT_01)  # снимок (22:50) старше выполненной заявки — ждём, попытка не тратится

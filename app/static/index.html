@@ -291,6 +291,22 @@
     </div>
   </section>
 
+  <section id="pvfc" class="card" aria-labelledby="pvfc-h" aria-busy="true">
+    <div class="card-h">
+      <h2 id="pvfc-h" data-i18n="pvfc.title">Сонце: прогноз і факт</h2>
+      <span class="stale" id="pvfc-stale" hidden></span>
+      <div class="seg" id="pvfc-seg" role="group" data-i18n-aria="pvfc.day.aria">
+        <button type="button" data-day="-1" aria-pressed="false" data-i18n="pvfc.day.yesterday">Вчора</button>
+        <button type="button" data-day="0" aria-pressed="true" data-i18n="pvfc.day.today">Сьогодні</button>
+        <button type="button" data-day="1" aria-pressed="false" data-i18n="pvfc.day.tomorrow">Завтра</button>
+      </div>
+    </div>
+    <p class="sub" id="pvfc-sum">—</p>
+    <p class="sub" id="pvfc-warn" hidden></p>
+    <div class="legend" id="pvfc-legend"></div>
+    <div class="chart-box" id="pvfc-chart" data-h="260" role="img" data-i18n-aria="forecast.chart.loading"></div>
+  </section>
+
   <section id="history" class="card" aria-labelledby="history-h" aria-busy="true">
     <div class="card-h">
       <h2 id="history-h" data-i18n="history.title">Історія</h2>

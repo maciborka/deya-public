@@ -134,6 +134,13 @@ def build_night_changes(regs: dict, target: float, st: dict, params: PlannerPara
 
 
 NIGHT_TARGET_FP_KEYS = ("night_target_mode", "night_target_manual_pct", "night_target_manual_night")
+CLOUDY_FP_KEY = "cloudy_full_charge_kwh"
+
+
+def _cloudy_threshold(st: dict) -> float | None:
+    """Порог пасмурного дня из настроек: None/0 → правило выключено."""
+    v = st.get("cloudy_full_charge_kwh")
+    return float(v) if v else None
 
 
 def manual_night_target(st: dict, night: date) -> float | None:
@@ -162,6 +169,7 @@ def settings_fingerprint(st: dict) -> dict:
         "emergency_mode": st["emergency_mode"],
         "max_grid_charge_soc_pct": float(st["max_grid_charge_soc_pct"]),
         "risk": st["risk"],
+        CLOUDY_FP_KEY: _cloudy_threshold(st),
         "night_target_mode": mode,
         "night_target_manual_pct": st.get("night_target_manual_pct") if mode != "auto" else None,
         "night_target_manual_night": night.isoformat() if mode == "once" and night is not None else None,
@@ -175,10 +183,14 @@ def _night_target_fp(fp: dict | None) -> tuple:
 
 
 def _same_fp(old: dict | None, new: dict) -> bool:
-    """Отпечатки совпадают; у решений до ручной цели её ключей нет — считаются авто (без лишнего пересчёта)."""
+    """Отпечатки совпадают; у решений до ручной цели её ключей нет — считаются авто, а до порога пасмурного дня
+    его ключа нет — совпадают с любым (без лишнего пересчёта при выкатке)."""
     if old is None:
         return False
-    rest = lambda fp: {k: v for k, v in fp.items() if k not in NIGHT_TARGET_FP_KEYS}
+    skip = NIGHT_TARGET_FP_KEYS + (CLOUDY_FP_KEY,)
+    rest = lambda fp: {k: v for k, v in fp.items() if k not in skip}
+    if CLOUDY_FP_KEY in old and old[CLOUDY_FP_KEY] != new.get(CLOUDY_FP_KEY):
+        return False
     return rest(old) == rest(new) and _night_target_fp(old) == _night_target_fp(new)
 
 
@@ -221,6 +233,7 @@ def build_params(st: dict, regs: dict) -> PlannerParams:
         "risk": st["risk"],
         "default_plan_soc": float(st["default_plan_soc_pct"]),
         "tz": config.TZ,
+        "cloudy_full_charge_kwh": _cloudy_threshold(st),
     }
     shutdown = _reg_number(regs, 115)
     if shutdown is not None:
@@ -239,6 +252,28 @@ def night_date_for(now_ts: int, params: PlannerParams) -> date:
 
 def _tomorrow_kwh(series: dict[int, float], day: date, tz: str) -> float:
     return sum(v for ts, v in series.items() if local(ts, tz).date() == day) * SLOT_SEC / 3600 / 1000
+
+
+def _pv_scenarios(db: Database, fc: dict, tz: str, today: date) -> tuple[dict, dict, dict]:
+    """Веса провайдеров (по истории ошибок за HISTORY_DAYS до today), консенсус и сценарии p10/p50/p90 по слотам."""
+    errors = [
+        ForecastErr(r["provider"], r["target_ts"], r["fetched_at"], r["forecast_w"], r["actual_w"])
+        for r in db.forecast_history_errors(at_local(today - timedelta(days=HISTORY_DAYS), 0, tz), at_local(today, 0, tz), tz)
+        if r["provider"] in fc
+    ]
+    weights = provider_weights(errors, sorted(fc), tz)
+    cons = consensus({p: {ts: v["p"] for ts, v in h.items()} for p, h in fc.items()}, weights)
+    sol = fc.get("solcast")
+    if sol:
+        scen = scenarios(
+            cons,
+            {ts: v["p10"] for ts, v in sol.items()},
+            {ts: v["p"] for ts, v in sol.items()},
+            {ts: v["p90"] for ts, v in sol.items()},
+        )
+    else:
+        scen = scenarios(cons)
+    return weights, cons, scen
 
 
 def _gather(db: Database, now_ts: int, until_ts: int | None = None) -> dict:
@@ -272,28 +307,112 @@ def _gather(db: Database, now_ts: int, until_ts: int | None = None) -> dict:
     fc = {p: h for p, h in db.forecast_asof(from_ts, to_ts, now_ts).items() if p in enabled}
     if not fc:
         raise ValueError("нет прогноза PV от включённых провайдеров")
-    today = local(now_ts, tz).date()
-    errors = [
-        ForecastErr(r["provider"], r["target_ts"], r["fetched_at"], r["forecast_w"], r["actual_w"])
-        for r in db.forecast_history_errors(at_local(today - timedelta(days=HISTORY_DAYS), 0, tz), at_local(today, 0, tz), tz)
-        if r["provider"] in fc
-    ]
-    weights = provider_weights(errors, sorted(fc), tz)
-    cons = consensus({p: {ts: v["p"] for ts, v in h.items()} for p, h in fc.items()}, weights)
-    sol = fc.get("solcast")
-    if sol:
-        scen = scenarios(
-            cons,
-            {ts: v["p10"] for ts, v in sol.items()},
-            {ts: v["p"] for ts, v in sol.items()},
-            {ts: v["p90"] for ts, v in sol.items()},
-        )
-    else:
-        scen = scenarios(cons)
+    weights, cons, scen = _pv_scenarios(db, fc, tz, local(now_ts, tz).date())
     return {
         "st": st, "regs": regs, "params": params, "soc": soc, "price": price, "night_date": d,
         "profile": profile, "fc": fc, "weights": weights, "cons": cons, "scen": scen,
     }
+
+
+PV_HOURLY_MAX_GAP_SEC = 300  # интервалы между замерами длиннее — пропуск данных, не интегрируются
+
+
+def _hour_bounds(day: date, tz: str) -> list[int]:
+    """Границы локальных часов суток day (24/23/25 часов; в Киеве смещение кратно часу)."""
+    start, end = at_local(day, 0, tz), at_local(day + timedelta(days=1), 0, tz)
+    return list(range(start, end + 1, 3600))
+
+
+def _bin_kwh(series: dict[int, float], bounds: list[int]) -> list[float | None]:
+    """Ряд слотов (Вт) → кВт·ч по часам bounds; None, если в часе нет слотов."""
+    sums: list[float | None] = [None] * (len(bounds) - 1)
+    for ts, w in series.items():
+        i = (ts - bounds[0]) // 3600
+        if 0 <= i < len(sums):
+            sums[i] = (sums[i] or 0.0) + w * SLOT_SEC / 3600 / 1000
+    return sums
+
+
+def _actual_hourly_kwh(rows: list[dict], bounds: list[int]) -> list[float | None]:
+    """Выработка PV (pv1+pv2) по часам: трапеции между замерами, интервал делится по границам часов; без данных → None."""
+    sums: list[float | None] = [None] * (len(bounds) - 1)
+    for a, b in zip(rows, rows[1:]):
+        dt = b["ts"] - a["ts"]
+        if dt <= 0 or dt > PV_HOURLY_MAX_GAP_SEC:
+            continue
+        pa = [r for r in (a.get("pv1_power_w"), a.get("pv2_power_w")) if r is not None]
+        pb = [r for r in (b.get("pv1_power_w"), b.get("pv2_power_w")) if r is not None]
+        if not pa or not pb:
+            continue
+        w = max((sum(pa) + sum(pb)) / 2, 0.0)
+        for i in range(len(sums)):
+            lo, hi = max(a["ts"], bounds[i]), min(b["ts"], bounds[i + 1])
+            if hi > lo:
+                sums[i] = (sums[i] or 0.0) + w * (hi - lo) / 3600 / 1000
+    return sums
+
+
+def _rnd(v: float | None, n: int = 3) -> float | None:
+    return None if v is None else round(v, n)
+
+
+def compute_pv_hourly(db: Database, day: date, now_ts: int) -> dict:
+    """Почасовой прогноз PV vs факт за локальные сутки day.
+
+    Прогноз — как его видел планировщик: на момент decision_time вечером накануне (если он ещё впереди — на now).
+    Факт — интеграл pv1+pv2 по локальным часам; для не начавшихся часов None.
+    """
+    tz = config.TZ
+    st = db.strategy_settings()
+    decision_time = st["decision_time"] if st else dtime(22, 45)
+    asof = int(datetime.combine(day - timedelta(days=1), decision_time, tzinfo=zone(tz)).timestamp())
+    asof = min(asof, now_ts)
+    bounds = _hour_bounds(day, tz)
+    n = len(bounds) - 1
+    warnings: list[str] = []
+
+    enabled = {r["code"] for r in db.forecast_providers() if r["enabled"]}
+    fc = {p: h for p, h in db.forecast_asof(bounds[0], bounds[-1], asof).items() if p in enabled}
+    p10 = p50 = p90 = [None] * n
+    prov: dict[str, list[float | None]] = {}
+    if fc:
+        _, cons, scen = _pv_scenarios(db, fc, tz, local(asof, tz).date())
+        p10, p50, p90 = (_bin_kwh(scen[k], bounds) for k in ("p10", "p50", "p90"))
+        for p, h in sorted(fc.items()):
+            prov[p] = _bin_kwh(consensus({p: {ts: v["p"] for ts, v in h.items()}}), bounds)
+    else:
+        warnings.append("нет прогноза PV на этот день от включённых провайдеров")
+
+    rows = db.samples_between(bounds[0] - PV_HOURLY_MAX_GAP_SEC, bounds[-1] + PV_HOURLY_MAX_GAP_SEC, 400000,
+                              ["pv1_power_w", "pv2_power_w"])
+    actual = _actual_hourly_kwh(rows, bounds)
+    actual = [a if bounds[i] <= now_ts else None for i, a in enumerate(actual)]
+
+    hours = [{
+        "ts": bounds[i],
+        "hour": local(bounds[i], tz).strftime("%H:00"),
+        "actual_kwh": _rnd(actual[i]),
+        "p50_kwh": _rnd(p50[i]),
+        "p10_kwh": _rnd(p10[i]),
+        "p90_kwh": _rnd(p90[i]),
+        "providers": {p: _rnd(v[i]) for p, v in prov.items() if v[i] is not None},
+    } for i in range(n)]
+
+    def total(vals) -> float | None:
+        got = [v for v in vals if v is not None]
+        return round(sum(got), 3) if got else None
+
+    done = [i for i in range(n) if bounds[i + 1] <= now_ts and actual[i] is not None and p50[i] is not None]
+    done_p50 = sum(p50[i] for i in done)
+    totals = {
+        "actual_kwh": total(actual),
+        "p50_kwh": total(p50),
+        "p10_kwh": total(p10),
+        "p90_kwh": total(p90),
+        "providers": {p: total(v) for p, v in prov.items()},
+        "actual_vs_p50_pct": round(sum(actual[i] for i in done) / done_p50 * 100, 1) if done_p50 > 0 else None,
+    }
+    return {"date": day.isoformat(), "forecast_asof_ts": asof, "hours": hours, "totals": totals, "warnings": warnings}
 
 
 def compute(db: Database, now_ts: int, _inputs: dict | None = None) -> dict:
@@ -533,6 +652,9 @@ def _inputs_summary(res: dict) -> dict:
         "soc_at_23_pct": round(dec.soc_at_23_pct, 2),
         "margin_uah_per_kwh": round(dec.margin_uah_per_kwh, 3),
         "tomorrow_full_p50": dec.tomorrow_full_p50,
+        "cloudy_full": dec.cloudy_full,
+        "cloudy_pre_rule_target_pct": dec.cloudy_pre_rule_target_pct,
+        "pv_p50_day_kwh": round(dec.pv_p50_day_kwh, 2) if dec.pv_p50_day_kwh is not None else None,
         "counterfactuals": {k: round(v, 2) for k, v in dec.counterfactuals.items()},
         "charge_from_grid": dec.target_pct > dec.soc_at_23_pct + CHARGE_EPS_PCT,
         "grid_charge_kwh": round(grid_kwh, 2),
@@ -585,6 +707,8 @@ def serialize(row: dict, preview: bool = False) -> dict:
     out["hourly_plan"] = (row.get("inputs") or {}).get("hourly_plan")
     out["manual"] = bool((row.get("inputs") or {}).get("manual"))
     out["auto_target_pct"] = (row.get("inputs") or {}).get("auto_target_pct")
+    out["cloudy_full"] = bool((row.get("inputs") or {}).get("cloudy_full"))
+    out["pv_p50_day_kwh"] = (row.get("inputs") or {}).get("pv_p50_day_kwh")
     return out
 
 
@@ -699,6 +823,16 @@ def _wait(db: Database, row: dict, reason: str) -> None:
         db.set_decision_apply(row["id"], row["status"], note, expect_status=row["status"])
 
 
+def _snapshot_reflects(snap: dict, last: dict) -> bool:
+    """Снимок настроек отражает выполненную заявку: снят позже её завершения или уже содержит её значения.
+    ts снимка — целые секунды, а снимок пишется только при изменении регистров, поэтому снимок,
+    снятый в ту же секунду (readback), иначе считался бы старым навсегда."""
+    if last["finished_at"] is None or snap["ts"] > last["finished_at"].timestamp():
+        return True
+    regs = snap["regs"]
+    return all(regs.get(str(k)) == v for k, v in (last["changes"] or {}).items())
+
+
 def _try_apply(db: Database, row: dict, st: dict, now_ts: int, attempt: int) -> None:
     """Попытка поставить ночной target решения в очередь записи (по свежему снимку настроек)."""
     night = row["night_date"]
@@ -709,8 +843,7 @@ def _try_apply(db: Database, row: dict, st: dict, now_ts: int, attempt: int) -> 
     if guard:
         return _wait(db, row, "; ".join(guard))
     last = db.last_write_request(PLANNER_SOURCE, "")
-    if last is not None and last["status"] == "done" and last["finished_at"] is not None \
-            and snap["ts"] <= last["finished_at"].timestamp():
+    if last is not None and last["status"] == "done" and not _snapshot_reflects(snap, last):
         # снимок ещё не отражает выполненную запись (например, прошлого решения) — ждём, попытка не тратится
         return _wait(db, row, f"снимок настроек старше выполненной заявки {last['id']}")
     regs = snap["regs"]
@@ -821,7 +954,7 @@ def floor_sync(db: Database, st: dict, now_ts: int) -> None:
     last = db.last_write_request(PLANNER_SOURCE, FLOOR_PREFIX)
     if last is not None and last["finished_at"] is not None:
         finished = last["finished_at"].timestamp()
-        if last["status"] == "done" and snap["ts"] <= finished:
+        if last["status"] == "done" and not _snapshot_reflects(snap, last):
             return  # ждём снимок настроек, отражающий выполненную запись
         if last["status"] != "done" and finished + FLOOR_RETRY_DELAY_SEC > now_ts:
             return

@@ -87,6 +87,11 @@ class Decision:
     manual: bool = False
     auto_target_pct: float | None = None
     auto_day_import_prob: float | None = None
+    # Пасмурный день: прогноз PV p50 завтра (07–23, кВт·ч); cloudy_full — цель поднята до потолка
+    # (при ручной цели — правило сработало бы); cloudy_pre_rule_target_pct — цель до правила
+    cloudy_full: bool = False
+    cloudy_pre_rule_target_pct: float | None = None
+    pv_p50_day_kwh: float | None = None
 
 
 def hourly_plan(r: SimResult, params: PlannerParams, price: PriceFn) -> list[dict]:
@@ -359,8 +364,19 @@ def plan_night(
         target = min(candidates, key=lambda c: (round(evaluate(c)["day_p"], 9), round(evaluate(c)["day_kwh"], 6), c))
     unconstrained = cheapest([c for c in candidates if no_grid(c)] if margin <= 0 else candidates)
     binding = evaluate(unconstrained)["day_p"] > tol + 1e-9
-    margin_override = margin <= 0 and not no_grid(target)
+    pv_p50_day_kwh = sum(pv["p50"][day_seg]) * step / 3600 / 1000
     manual = manual_target is not None
+    ceiling = round(params.night_ceiling_pct, 6)
+    cloudy_full = bool(
+        # неполный прогноз (пропуски = 0 Вт) занижает сумму — сравниваем с нормировкой на покрытие ядра дня
+        params.cloudy_full_charge_kwh and pv_p50_day_kwh / max(cov1, 1e-9) < params.cloudy_full_charge_kwh
+        and margin > 0 and target < ceiling and soc23 < ceiling
+    )
+    cloudy_pre = target if cloudy_full else None
+    if cloudy_full and not manual:
+        target = ceiling
+        constraint_met = evaluate(target)["day_p"] <= tol + 1e-9
+    margin_override = margin <= 0 and not no_grid(target)
     auto_target = target
     if manual:
         target = round(min(params.night_ceiling_pct, max(params.reserve_soc_pct, float(manual_target))), 6)
@@ -380,7 +396,9 @@ def plan_night(
         constraint_met = chosen["day_p"] <= tol + 1e-9
         reasons.append(
             f"Ручная ночная цель {target:g} % (настройки); расчёт выбрал бы {auto_target:g} % "
-            f"(вероятность дневной докупки {_pct(auto_p)} %)."
+            f"(вероятность дневной докупки {_pct(auto_p)} %)"
+            + (f"; пасмурно ({pv_p50_day_kwh:.1f} кВт·ч < порога {params.cloudy_full_charge_kwh:g}) — "
+               f"авто подняло бы до потолка {ceiling:g} %." if cloudy_full else ".")
         )
         if constraint_met:
             reasons.append(f"Вероятность дневной докупки при ручной цели {_pct(chosen['day_p'])} % "
@@ -397,7 +415,19 @@ def plan_night(
                 f"{params.wear_cost_per_kwh:.2f}) — заряд от сети невыгоден"
                 + (", но без него днём придётся покупать из сети — заряжаем." if margin_override else ".")
             )
-        if constraint_met:
+        if cloudy_full:
+            cost_diff = evaluate(ceiling)["cost"] - evaluate(cloudy_pre)["cost"]
+            reasons.append(
+                f"Пасмурно: солнца завтра по прогнозу {pv_p50_day_kwh:.1f} кВт·ч < порога "
+                f"{params.cloudy_full_charge_kwh:g} — заряжаем до потолка {ceiling:g} % "
+                f"(расчёт дал {cloudy_pre:g} %, страховка +{cost_diff:.2f} грн)."
+            )
+            if not constraint_met:
+                msg = (f"Даже при заряде до {target:g} % днём вероятно докупим ~{chosen['day_kwh']:.1f} кВт·ч "
+                       f"(вероятность {_pct(chosen['day_p'])} %).")
+                reasons.append(msg)
+                warnings.append(msg)
+        elif constraint_met:
             reasons.append(
                 f"{'Минимальный заряд' if binding else 'Самый дешёвый target'}, при котором днём не покупаем "
                 f"из сети с вероятностью ≥ {_pct((1 - tol))} %: {target:g} % (вероятность дневного импорта "
@@ -418,9 +448,9 @@ def plan_night(
                 f"Выгоднее удержать ночью SOC ≈ {target:.1f} % (SOC_23 {soc23:.1f}, ε {params.epsilon_pct:g}) — "
                 "запас АКБ дороже днём, чем дешёвой ночью."
             )
-        elif tomorrow_full:
+        elif tomorrow_full and not cloudy_full:
             reasons.append("Завтра по p50 АКБ заполняется солнцем — лишний ночной заряд вытеснил бы бесплатную PV.")
-        elif target > soc23:
+        elif target > soc23 and not cloudy_full:
             reasons.append("Завтра солнца мало — ночной заряд от сети окупается.")
     if day2_missing:
         reasons.append("Прогноза на послезавтра нет — для оценки остатка взят PV завтрашнего дня.")
@@ -468,6 +498,9 @@ def plan_night(
         manual=manual,
         auto_target_pct=auto_target if manual else None,
         auto_day_import_prob=evaluate(auto_target)["day_p"] if manual else None,
+        cloudy_full=cloudy_full,
+        cloudy_pre_rule_target_pct=cloudy_pre,
+        pv_p50_day_kwh=pv_p50_day_kwh,
     )
 
 

@@ -23,7 +23,7 @@ from .forecast import registry
 from .forecast.scheduler import ForecastScheduler, next_run_ts, parse_hours
 from .logger_client import LoggerClient
 from .planner_service import (
-    PlannerScheduler, TariffPrice, apply_status, compute_forecast24, compute_preview, floor_sync_status, serialize,
+    PlannerScheduler, TariffPrice, apply_status, compute_forecast24, compute_pv_hourly, compute_preview, floor_sync_status, serialize,
 )
 from zoneinfo import ZoneInfo
 
@@ -42,6 +42,7 @@ async def lifespan(app: FastAPI):
     app.state.collector = collector
     app.state.preview_cache = None
     app.state.forecast_cache = {}
+    app.state.pv_hourly_cache = {}
     scheduler = ForecastScheduler(db, config.TZ, parse_hours(config.FORECAST_HOURS), config.FORECAST_DAYS)
     planner = PlannerScheduler(db, config.TZ)
     tasks = [
@@ -315,6 +316,31 @@ async def weather_forecast():
         raise HTTPException(status_code=503, detail="прогноз погоды недоступен")
 
 
+PV_HOURLY_PAST_DAYS = 7
+PV_HOURLY_FUTURE_DAYS = 2
+
+
+@app.get("/api/pv/hourly")
+async def pv_hourly(day: date | None = Query(None, alias="date")):
+    """Почасовой прогноз PV (как у планировщика) против факта за локальные сутки; сегодня−7 … сегодня+2."""
+    now_ts = int(time.time())
+    today = datetime.fromtimestamp(now_ts, ZoneInfo(config.TZ)).date()
+    if day is None:
+        day = today
+    if not today - timedelta(days=PV_HOURLY_PAST_DAYS) <= day <= today + timedelta(days=PV_HOURLY_FUTURE_DAYS):
+        raise HTTPException(status_code=400, detail="дата вне диапазона: сегодня−7 … сегодня+2")
+    now = time.monotonic()
+    cache = app.state.pv_hourly_cache
+    cached = cache.get(day)
+    if cached is not None and now - cached[0] < PREVIEW_CACHE_SEC:
+        return cached[1]
+    result = await asyncio.to_thread(compute_pv_hourly, app.state.db, day, now_ts)
+    for k in [k for k, v in cache.items() if now - v[0] >= PREVIEW_CACHE_SEC]:
+        del cache[k]
+    cache[day] = (now, result)
+    return result
+
+
 @app.get("/api/tariff")
 async def tariff():
     db: Database = app.state.db
@@ -340,6 +366,7 @@ async def strategy():
         "normal_floor_pct": row["normal_floor_pct"],
         "emergency_mode": row["emergency_mode"],
         "emergency_floor_pct": row["emergency_floor_pct"],
+        "cloudy_full_charge_kwh": row["cloudy_full_charge_kwh"],
         "battery_capacity_kwh": float(row["battery_capacity_kwh"]),
         "battery_usable_pct": row["battery_usable_pct"],
         "round_trip_efficiency_pct": row["round_trip_efficiency_pct"],
